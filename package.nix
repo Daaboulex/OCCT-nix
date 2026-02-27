@@ -195,8 +195,8 @@ stdenv.mkDerivation rec {
   };
 
   icon = fetchurl {
-    url = "https://www.ocbase.com/images/new/occt.logo.svg";
-    hash = "sha256-8rVpv8ieKiqoT4afBrZY/dndqTjTZ6yS2DHReOW8SkI=";
+    url = "https://www.ocbase.com/favicon.ico";
+    hash = "sha256-wkrRT+JtznpBoBMC68jncf8l9ad6ZWBPJtxi+oPJaaE=";
   };
 
   dontUnpack = true;
@@ -263,7 +263,7 @@ WRAPPER
 
     # Install the icon
     mkdir -p $out/share/icons/hicolor/scalable/apps
-    cp $icon $out/share/icons/hicolor/scalable/apps/occt.svg
+    cp $icon $out/share/icons/hicolor/scalable/apps/occt.ico
 
     runHook postInstall
   '';
@@ -301,7 +301,7 @@ WRAPPER
     (makeDesktopItem {
       name = "occt";
       exec = "occt";
-      icon = "occt";
+      icon = "occt.ico";
       desktopName = "OCCT";
       genericName = "Stability Test & Benchmark";
       categories = [ "System" "Utility" "HardwareSettings" ];
