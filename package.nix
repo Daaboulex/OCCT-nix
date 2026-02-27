@@ -40,6 +40,7 @@
   # Build dependencies
   copyDesktopItems,
   makeDesktopItem,
+  icoutils,
 }:
 
 let
@@ -205,6 +206,7 @@ stdenv.mkDerivation rec {
     autoPatchelfHook
     copyDesktopItems
     patchelf
+    icoutils
   ];
 
   # Only the binary's direct NEEDED libs (from readelf -d)
@@ -261,9 +263,19 @@ WRAPPER
       --replace "@ldpath@" "${lib.makeLibraryPath runtimeLibs}" \
       --replace "@binpath@" "${lib.makeBinPath [ pciutils dmidecode smartmontools usbutils zfs ]}"
 
-    # Install the icon
-    mkdir -p $out/share/icons/hicolor/scalable/apps
-    cp $icon $out/share/icons/hicolor/scalable/apps/occt.ico
+    # Install the icons from the ICO file
+    cp $icon occt.ico
+    icotool -x occt.ico
+    for size in 16 24 32 48 64 128 256; do
+      # icotool -x produces files like occt_1_128x128x32.png
+      if ls occt_*''${size}x''${size}x*.png >/dev/null 2>&1; then
+        mkdir -p $out/share/icons/hicolor/''${size}x''${size}/apps
+        cp occt_*''${size}x''${size}x*.png $out/share/icons/hicolor/''${size}x''${size}/apps/occt.png || true
+      fi
+    done
+    # Fallback to a generic location if needed
+    mkdir -p $out/share/pixmaps
+    cp occt_*256x256x*.png $out/share/pixmaps/occt.png || cp occt_*.png $out/share/pixmaps/occt.png || true
 
     runHook postInstall
   '';
@@ -301,7 +313,7 @@ WRAPPER
     (makeDesktopItem {
       name = "occt";
       exec = "occt";
-      icon = "occt.ico";
+      icon = "occt";
       desktopName = "OCCT";
       genericName = "Stability Test & Benchmark";
       categories = [ "System" "Utility" "HardwareSettings" ];
