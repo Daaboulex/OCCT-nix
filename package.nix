@@ -194,6 +194,11 @@ stdenv.mkDerivation rec {
     hash = "sha256-a6IS9/RLZsYHqX8J6mfz4XzfHsuuAQmmlYzhloEC1fw=";
   };
 
+  icon = fetchurl {
+    url = "https://www.ocbase.com/images/new/occt.logo.svg";
+    hash = "sha256-8rVpv8ieKiqoT4afBrZY/dndqTjTZ6yS2DHReOW8SkI=";
+  };
+
   dontUnpack = true;
 
   nativeBuildInputs = [
@@ -255,6 +260,10 @@ WRAPPER
       --replace "@out@" "$out" \
       --replace "@ldpath@" "${lib.makeLibraryPath runtimeLibs}" \
       --replace "@binpath@" "${lib.makeBinPath [ pciutils dmidecode smartmontools usbutils zfs ]}"
+
+    # Install the icon
+    mkdir -p $out/share/icons/hicolor/scalable/apps
+    cp $icon $out/share/icons/hicolor/scalable/apps/occt.svg
 
     runHook postInstall
   '';
