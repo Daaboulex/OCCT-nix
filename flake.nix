@@ -7,8 +7,15 @@
     systems = [ "x86_64-linux" ];
     forAllSystems = nixpkgs.lib.genAttrs systems;
   in {
+    overlays.default = final: prev: {
+      occt = final.callPackage ./package.nix { };
+    };
+
     packages = forAllSystems (system: let
-      pkgs = nixpkgs.legacyPackages.${system};
+      pkgs = import nixpkgs {
+        inherit system;
+        config.allowUnfree = true;
+      };
     in {
       occt = pkgs.callPackage ./package.nix { };
       default = self.packages.${system}.occt;
