@@ -47,6 +47,8 @@
   iproute2,
   libva-utils,
   vulkan-tools,
+  util-linux,
+  kmod,
 }:
 
 let
@@ -200,7 +202,7 @@ EOF
 in
 stdenv.mkDerivation rec {
   pname = "occt";
-  version = "16.0.0";
+  version = "16.0.1";
 
   src = fetchurl {
     url = "https://www.ocbase.com/download-bin/edition:Personal/os:Linux";
@@ -273,7 +275,7 @@ WRAPPER
     substituteInPlace $out/bin/occt \
       --replace "@out@" "$out" \
       --replace "@ldpath@" "${lib.makeLibraryPath runtimeLibs}" \
-      --replace "@binpath@" "${lib.makeBinPath [ pciutils dmidecode smartmontools usbutils zfs lm_sensors nvme-cli iproute2 libva-utils vulkan-tools ]}"
+      --replace "@binpath@" "${lib.makeBinPath [ pciutils dmidecode smartmontools usbutils zfs lm_sensors nvme-cli iproute2 libva-utils vulkan-tools util-linux kmod ]}"
 
     # Install the icons from the ICO file
     cp $icon occt.ico
