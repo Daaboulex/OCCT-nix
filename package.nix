@@ -41,6 +41,12 @@
   copyDesktopItems,
   makeDesktopItem,
   icoutils,
+  # Additional sensors
+  lm_sensors,
+  nvme-cli,
+  iproute2,
+  libva-utils,
+  vulkan-tools,
 }:
 
 let
@@ -184,15 +190,21 @@ EOF
     at-spi2-core
     dbus
     stdenv.cc.cc.lib
+    # Monitoring tools
+    lm_sensors
+    nvme-cli
+    iproute2
+    libva-utils
+    vulkan-tools
   ];
 in
 stdenv.mkDerivation rec {
   pname = "occt";
-  version = "15.0.14";
+  version = "16.0.0";
 
   src = fetchurl {
     url = "https://www.ocbase.com/download-bin/edition:Personal/os:Linux";
-    hash = "sha256-a6IS9/RLZsYHqX8J6mfz4XzfHsuuAQmmlYzhloEC1fw=";
+    hash = "sha256-1Lzed5m6TYO23fMcDsHfF2LzUBnWrU2R9u9bkxTFjrA=";
   };
 
   icon = fetchurl {
@@ -261,7 +273,7 @@ WRAPPER
     substituteInPlace $out/bin/occt \
       --replace "@out@" "$out" \
       --replace "@ldpath@" "${lib.makeLibraryPath runtimeLibs}" \
-      --replace "@binpath@" "${lib.makeBinPath [ pciutils dmidecode smartmontools usbutils zfs ]}"
+      --replace "@binpath@" "${lib.makeBinPath [ pciutils dmidecode smartmontools usbutils zfs lm_sensors nvme-cli iproute2 libva-utils vulkan-tools ]}"
 
     # Install the icons from the ICO file
     cp $icon occt.ico
