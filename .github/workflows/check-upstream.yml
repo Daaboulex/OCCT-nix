@@ -1,0 +1,97 @@
+name: Check upstream OCCT
+
+on:
+  schedule:
+    - cron: '0 8 * * 1'  # Weekly on Monday 08:00 UTC
+  workflow_dispatch:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Nix
+        uses: DeterminateSystems/nix-installer-action@main
+
+      - name: Get current version and hash
+        id: current
+        run: |
+          VERSION=$(grep -oP 'version = "[^"]+"' package.nix | head -1 | sed 's/version = "//;s/"//')
+          HASH=$(grep -A1 'download-bin' package.nix | grep 'hash =' | sed 's/.*hash = "//;s/".*//')
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "hash=$HASH" >> $GITHUB_OUTPUT
+
+      - name: Download latest binary and compute hash
+        id: upstream
+        run: |
+          curl -sL -o /tmp/occt "https://www.ocbase.com/download-bin/edition:Personal/os:Linux"
+          NEW_HASH=$(nix-hash --type sha256 --flat --sri /tmp/occt)
+          echo "hash=$NEW_HASH" >> $GITHUB_OUTPUT
+
+      - name: Check if update needed
+        id: check
+        run: |
+          if [ "${{ steps.current.outputs.hash }}" = "${{ steps.upstream.outputs.hash }}" ]; then
+            echo "needed=false" >> $GITHUB_OUTPUT
+            echo "Binary unchanged"
+          else
+            echo "needed=true" >> $GITHUB_OUTPUT
+            echo "New binary detected: hash changed"
+          fi
+
+      - name: Extract version from binary
+        if: steps.check.outputs.needed == 'true'
+        id: version
+        run: |
+          # Try to extract version string from the binary
+          NEW_VERSION=$(strings /tmp/occt | grep -oP 'OCCT[: ]+v?\K[0-9]+\.[0-9]+\.[0-9]+' | head -1 || echo "unknown")
+          if [ "$NEW_VERSION" = "unknown" ]; then
+            # Fallback: try dotnet metadata
+            NEW_VERSION=$(strings /tmp/occt | grep -oP '[0-9]+\.[0-9]+\.[0-9]+' | sort -V | tail -1 || echo "unknown")
+          fi
+          echo "version=$NEW_VERSION" >> $GITHUB_OUTPUT
+
+      - name: Update package.nix
+        if: steps.check.outputs.needed == 'true'
+        run: |
+          NEW_HASH="${{ steps.upstream.outputs.hash }}"
+          NEW_VERSION="${{ steps.version.outputs.version }}"
+
+          # Update hash
+          sed -i "s|hash = \"sha256-[^\"]*\";|hash = \"$NEW_HASH\";|" package.nix
+
+          # Update version if detected
+          if [ "$NEW_VERSION" != "unknown" ]; then
+            sed -i "s|version = \"[^\"]*\";|version = \"$NEW_VERSION\";|" package.nix
+          fi
+
+      - name: Test build
+        if: steps.check.outputs.needed == 'true'
+        run: nix build .
+
+      - name: Create PR
+        if: steps.check.outputs.needed == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          NEW_VERSION="${{ steps.version.outputs.version }}"
+          BRANCH="update/occt-${NEW_VERSION}"
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git checkout -b "$BRANCH"
+          git add package.nix
+          git commit -m "chore: update OCCT to v${NEW_VERSION}"
+          git push -u origin "$BRANCH"
+
+          gh pr create \
+            --title "chore: update OCCT to v${NEW_VERSION}" \
+            --body "$(cat <<'PREOF'
+          Automated update detected new OCCT binary.
+
+          - Previous: v${{ steps.current.outputs.version }} (${{ steps.current.outputs.hash }})
+          - New: v${NEW_VERSION} (${{ steps.upstream.outputs.hash }})
+
+          Build tested successfully.
+          PREOF
+          )"
