@@ -5,6 +5,10 @@ on:
     - cron: '0 8 * * 1'  # Weekly on Monday 08:00 UTC
   workflow_dispatch:
 
+permissions:
+  contents: write
+  pull-requests: write
+
 jobs:
   check:
     runs-on: ubuntu-latest
@@ -26,7 +30,7 @@ jobs:
         id: upstream
         run: |
           curl -sL -o /tmp/occt "https://www.ocbase.com/download-bin/edition:Personal/os:Linux"
-          NEW_HASH=$(nix-hash --type sha256 --flat --sri /tmp/occt)
+          NEW_HASH=$(nix hash file --sri /tmp/occt)
           echo "hash=$NEW_HASH" >> $GITHUB_OUTPUT
 
       - name: Check if update needed
