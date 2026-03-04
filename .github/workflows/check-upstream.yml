@@ -48,11 +48,11 @@ jobs:
         if: steps.check.outputs.needed == 'true'
         id: version
         run: |
-          # Try to extract version string from the binary
-          NEW_VERSION=$(strings /tmp/occt | grep -oP 'OCCT[: ]+v?\K[0-9]+\.[0-9]+\.[0-9]+' | head -1 || echo "unknown")
+          # Extract from .NET assembly metadata: <assemblyIdentity version="16.0.2.99" name="OCCT"/>
+          NEW_VERSION=$(strings /tmp/occt | grep -oP 'assemblyIdentity version="\K[0-9]+\.[0-9]+\.[0-9]+' | head -1 || echo "unknown")
           if [ "$NEW_VERSION" = "unknown" ]; then
-            # Fallback: try dotnet metadata
-            NEW_VERSION=$(strings /tmp/occt | grep -oP '[0-9]+\.[0-9]+\.[0-9]+' | sort -V | tail -1 || echo "unknown")
+            # Fallback: look for X.Y.Z.NN pattern
+            NEW_VERSION=$(strings /tmp/occt | grep -oP '^\t\K[0-9]+\.[0-9]+\.[0-9]+(?=\.[0-9]+$)' | head -1 || echo "unknown")
           fi
           echo "version=$NEW_VERSION" >> $GITHUB_OUTPUT
 

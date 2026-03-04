@@ -202,11 +202,11 @@ EOF
 in
 stdenv.mkDerivation rec {
   pname = "occt";
-  version = "16.0.1";
+  version = "16.0.2";
 
   src = fetchurl {
     url = "https://www.ocbase.com/download-bin/edition:Personal/os:Linux";
-    hash = "sha256-1Lzed5m6TYO23fMcDsHfF2LzUBnWrU2R9u9bkxTFjrA=";
+    hash = "sha256-wdSC+AKJ7m+CbLHtun7xMuPRkLDtRovcv9eo3fGmw6g=";
   };
 
   icon = fetchurl {
