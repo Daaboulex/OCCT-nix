@@ -1,24 +1,21 @@
 # OCCT-nix
 
-[![CI](https://github.com/Daaboulex/OCCT-nix/actions/workflows/ci.yml/badge.svg)](https://github.com/Daaboulex/OCCT-nix/actions/workflows/ci.yml)
-[![License](https://img.shields.io/github/license/Daaboulex/OCCT-nix)](./LICENSE)
-[![NixOS](https://img.shields.io/badge/NixOS-unstable-78C0E8?logo=nixos&logoColor=white)](https://nixos.org)
-[![Last commit](https://img.shields.io/github/last-commit/Daaboulex/OCCT-nix)](https://github.com/Daaboulex/OCCT-nix/commits)
-[![Stars](https://img.shields.io/github/stars/Daaboulex/OCCT-nix?style=flat)](https://github.com/Daaboulex/OCCT-nix/stargazers)
-[![Issues](https://img.shields.io/github/issues/Daaboulex/OCCT-nix)](https://github.com/Daaboulex/OCCT-nix/issues)
+<!-- BEGIN generated:badges -->
+[![NixOS unstable](https://img.shields.io/badge/NixOS-unstable-78C0E8?logo=nixos&logoColor=white)](https://nixos.org)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](./LICENSE)
+<!-- END generated:badges -->
 
 A Nix flake for [OCCT (OverClock Checking Tool)](https://www.ocbase.com/) on NixOS — stability testing, benchmarking, and hardware monitoring.
 
+<!-- BEGIN generated:upstream -->
 ## Upstream
 
-This is a **Nix packaging wrapper** — not the original program. OCCT is **proprietary, unfree** software developed by OCCT-Base:
-
-- **Project**: [OCCT (OverClock Checking Tool)](https://www.ocbase.com/)
-- **Vendor**: [OCBase / Vergil](https://www.ocbase.com/)
-- **License**: Proprietary; binary fetched from `ocbase.com` at install time. This repo does **not** redistribute the OCCT binary — it only generates the fetch + wrap pipeline.
-- **Requires**: `nixpkgs.config.allowUnfree = true`
-
-Your use of OCCT is subject to the [EULA and license terms](https://www.ocbase.com/) of OCCT-Base.
+| | |
+|---|---|
+| **Project** | [Upstream](https://www.ocbase.com) |
+| **License** | Proprietary |
+| **Tracked** | Custom update script |
+<!-- END generated:upstream -->
 
 ## What Is This?
 
@@ -45,6 +42,27 @@ A Nix flake that wraps the upstream OCCT Linux binary into a NixOS-portable pack
 - **MSR Access**: Wrapper attempts `modprobe msr` for CPU frequency/voltage reading, plus `modprobe i2c-dev` and `modprobe jc42` for DIMM temperature sensors (all fail silently without root).
 - **Wayland + X11**: `GDK_BACKEND=wayland,x11` with `wayland` client libraries included.
 - **Desktop Integration**: `.desktop` file and icons extracted from the upstream favicon.
+
+<!-- BEGIN generated:installation -->
+## Installation
+
+Add as a flake input:
+
+```nix
+{
+  inputs.OCCT = {
+    url = "github:Daaboulex/OCCT-nix";
+    inputs.nixpkgs.follows = "nixpkgs";
+  };
+}
+```
+
+Then add the overlay:
+
+```nix
+nixpkgs.overlays = [ inputs.OCCT.overlays.default ];
+```
+<!-- END generated:installation -->
 
 ## Usage
 
@@ -236,3 +254,9 @@ gh workflow run check-upstream.yml
 - **Nix packaging & compat shim**: This repo is [MIT](./LICENSE) licensed.
 - **OCCT software**: Proprietary, unfree. This repository does **not** distribute the OCCT binary — it only provides the fetch + wrap pipeline. Your use of OCCT is subject to the [EULA and license terms](https://www.ocbase.com/) of OCCT-Base.
 - **Unfree gate**: requires `nixpkgs.config.allowUnfree = true` in your Nix configuration.
+
+<!-- BEGIN generated:footer -->
+---
+
+*Maintained as part of the [Daaboulex](https://github.com/Daaboulex) NixOS ecosystem.*
+<!-- END generated:footer -->
