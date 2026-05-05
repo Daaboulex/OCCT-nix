@@ -1,0 +1,17 @@
+{
+  "package": "occt",
+  "upstream": {
+    "type": "custom",
+    "owner": "ocbase",
+    "repo": "occt"
+  },
+  "packageFile": "package.nix",
+  "hashes": [
+    "hash"
+  ],
+  "verify": {
+    "binary": null,
+    "args": null,
+    "check": "wrapper"
+  }
+}
