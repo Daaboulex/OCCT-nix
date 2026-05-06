@@ -57,7 +57,7 @@
         let
           pkgs = import nixpkgs { localSystem.system = system; };
         in
-        pkgs.nixfmt
+        pkgs.nixfmt-rfc-style
       );
 
       checks = forAllSystems (system: {

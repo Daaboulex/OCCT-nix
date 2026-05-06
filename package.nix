@@ -158,10 +158,25 @@ let
           return *pointer;
       }
 
-      /* ICU shim: some apps look for unversioned u_strlen */
-      extern size_t u_strlen_76(const void *s);
+      /* ICU shim: resolve versioned u_strlen at runtime (survives ICU bumps) */
+      #include <dlfcn.h>
+      #include <stdio.h>
+      #include <stdlib.h>
       size_t u_strlen(const void *s) {
-          return u_strlen_76(s);
+          static size_t (*real_fn)(const void *) = NULL;
+          if (!real_fn) {
+              char sym[32];
+              for (int v = 76; v <= 90; v++) {
+                  snprintf(sym, sizeof(sym), "u_strlen_%d", v);
+                  real_fn = dlsym(RTLD_DEFAULT, sym);
+                  if (real_fn) break;
+              }
+              if (!real_fn) {
+                  fprintf(stderr, "OCCT: no u_strlen_XX found in ICU — update the compat shim\n");
+                  abort();
+              }
+          }
+          return real_fn(s);
       }
 
       /* Dummy DllMain for lazy Windows-to-Linux ports */
@@ -172,7 +187,7 @@ let
 
             $CC -shared -fPIC -o libocct_compat.so compat_shim.c \
               $(pkg-config --cflags openssl icu-uc) \
-              $(pkg-config --libs openssl icu-uc)
+              $(pkg-config --libs openssl icu-uc) -ldl
     '';
 
     installPhase = ''
@@ -286,12 +301,7 @@ stdenv.mkDerivation rec {
         cp --no-preserve=mode $src $out/opt/occt/occt-bin
         chmod +x $out/opt/occt/occt-bin
 
-        # Portable-mode trigger files
-        touch $out/opt/occt/app_folder_in_home
-        touch $out/opt/occt/disable_update
-
         # Wrapper script — handles $HOME expansion at runtime
-        # We use @prefix@ and @suffix@ to make substitution easier to debug
         cat > $out/bin/occt << 'WRAPPER'
     #!/usr/bin/env bash
     # OCCT wrapper for NixOS
@@ -303,12 +313,20 @@ stdenv.mkDerivation rec {
     touch "''$OCCT_HOME/app_folder_in_home"
     touch "''$OCCT_HOME/disable_update"
 
-    # Ensure MSR module is loaded (needed for CPU frequency/voltage reading)
+    # Load kernel modules for hardware sensors (silent fail for non-root;
+    # succeeds when run as root or if modules already loaded via NixOS config)
     modprobe msr 2>/dev/null || true
-
-    # Load I2C/SMBus modules for memory DIMM temperature sensors
     modprobe i2c-dev 2>/dev/null || true
     modprobe jc42 2>/dev/null || true
+
+    # OCCT extracts native monitoring libs at runtime (OcctMonitoringLib).
+    # /tmp is noexec on NixOS → dlopen fails → SIGABRT.
+    # Redirect to /var/tmp (exec-allowed) or OCCT_HOME.
+    export TMPDIR="''$OCCT_HOME/tmp"
+    mkdir -p "''$TMPDIR"
+
+    # Clean stale .NET bundle extractions (one per binary hash, never auto-cleaned)
+    find "''$OCCT_HOME/runtime/occt-bin/" -mindepth 1 -maxdepth 1 -type d -mtime +7 -exec rm -rf {} + 2>/dev/null || true
 
     # Set up the environment
     # Priority: wrapped-openssl > runtimeLibs > existing LD_LIBRARY_PATH
