@@ -3,91 +3,53 @@
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
+    flake-parts.url = "github:hercules-ci/flake-parts";
     git-hooks = {
       url = "github:cachix/git-hooks.nix";
       inputs.nixpkgs.follows = "nixpkgs";
     };
+    std = {
+      url = "github:Daaboulex/nix-packaging-standard?ref=v2.2.3";
+      inputs.nixpkgs.follows = "nixpkgs";
+      inputs.git-hooks.follows = "git-hooks";
+    };
   };
 
   outputs =
-    {
-      self,
-      nixpkgs,
-      git-hooks,
-    }:
-    let
+    inputs@{ flake-parts, ... }:
+    flake-parts.lib.mkFlake { inherit inputs; } {
       systems = [ "x86_64-linux" ];
-      forAllSystems = nixpkgs.lib.genAttrs systems;
-    in
-    {
-      overlays.default = final: _prev: {
+
+      imports = [ inputs.std.flakeModules.base ];
+
+      flake.overlays.default = final: _prev: {
         occt = final.callPackage ./package.nix { };
         occt-testing = final.callPackage ./package.nix { branch = "Testing"; };
       };
 
-      packages = forAllSystems (
-        system:
+      perSystem =
+        { system, self', ... }:
         let
-          pkgs = import nixpkgs {
-            localSystem.system = system;
+          # OCCT is a proprietary prebuilt binary (unfree).
+          pkgs = import inputs.nixpkgs {
+            inherit system;
             config.allowUnfree = true;
           };
         in
         {
-          occt = pkgs.callPackage ./package.nix { };
-          occt-testing = pkgs.callPackage ./package.nix { branch = "Testing"; };
-          default = self.packages.${system}.occt;
-        }
-      );
+          packages.occt = pkgs.callPackage ./package.nix { };
+          packages.occt-testing = pkgs.callPackage ./package.nix { branch = "Testing"; };
+          packages.default = self'.packages.occt;
 
-      apps = forAllSystems (system: {
-        occt = {
-          type = "app";
-          program = "${self.packages.${system}.occt}/bin/occt";
-        };
-        occt-testing = {
-          type = "app";
-          program = "${self.packages.${system}.occt-testing}/bin/occt";
-        };
-        default = self.apps.${system}.occt;
-      });
-
-      formatter = forAllSystems (
-        system:
-        let
-          pkgs = import nixpkgs { localSystem.system = system; };
-        in
-        pkgs.nixfmt-rfc-style
-      );
-
-      checks = forAllSystems (system: {
-        pre-commit-check = git-hooks.lib.${system}.run {
-          src = self;
-          hooks.nixfmt-rfc-style.enable = true;
-          hooks.typos.enable = true;
-          hooks.rumdl.enable = true;
-          hooks.check-readme-sections = {
-            enable = true;
-            name = "check-readme-sections";
-            entry = "bash scripts/check-readme-sections.sh";
-            files = "README\.md$";
-            language = "system";
+          apps.occt = {
+            type = "app";
+            program = "${self'.packages.occt}/bin/occt";
           };
-        };
-      });
-
-      devShells = forAllSystems (
-        system:
-        let
-          pkgs = import nixpkgs { localSystem.system = system; };
-        in
-        {
-          default = pkgs.mkShell {
-            inherit (self.checks.${system}.pre-commit-check) shellHook;
-            buildInputs = self.checks.${system}.pre-commit-check.enabledPackages;
-            packages = with pkgs; [ nil ];
+          apps.occt-testing = {
+            type = "app";
+            program = "${self'.packages.occt-testing}/bin/occt";
           };
-        }
-      );
+          apps.default = self'.apps.occt;
+        };
     };
 }

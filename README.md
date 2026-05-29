@@ -16,13 +16,14 @@ A Nix flake for [OCCT (OverClock Checking Tool)](https://www.ocbase.com/) on Nix
 | **Project** | [Upstream](https://www.ocbase.com) |
 | **License** | Proprietary |
 | **Tracked** | Custom update script |
+
 <!-- END generated:upstream -->
 
 ## What Is This?
 
 A Nix flake that wraps the upstream OCCT Linux binary into a NixOS-portable package with full CI infrastructure:
 
-- **Daily upstream check** at 08:00 UTC tracking both Stable and Testing channels (auto-PR on hash change)
+- **Daily upstream check** at 06:00 UTC tracking both Stable and Testing channels (commits to `main` on hash change)
 - **OpenSSL 1.1 compatibility shim** — bundled .NET runtime targets removed OpenSSL 1.1 symbols; this flake compiles `libocct_compat.so` to wrap them onto OpenSSL 3.x
 - **ICU + Nix-store portability shims** — unversioned `u_strlen`, redirected app-data path under `~/.local/share/occt/`
 - **Hardware discovery PATH** — bundles `dmidecode`, `smartmontools`, `pciutils`, `usbutils`, `lm_sensors`, `nvme-cli`, `kmod`, `util-linux`, `iproute2`, `libva-utils`, `vulkan-tools`, `i2c-tools`
@@ -63,6 +64,7 @@ Then add the overlay:
 ```nix
 nixpkgs.overlays = [ inputs.OCCT.overlays.default ];
 ```
+
 <!-- END generated:installation -->
 
 ## Usage
@@ -185,70 +187,56 @@ Hardware discovery tools: `pciutils`, `dmidecode`, `smartmontools`, `usbutils`, 
 
 ## Automation & CI
 
-Three GitHub Actions workflows keep the package up to date and verified:
+Three GitHub Actions workflows, from the
+[Nix Packaging Standard](https://github.com/Daaboulex/nix-packaging-standard):
 
-### Upstream Release Monitor (`check-upstream.yml`)
+### CI (`ci.yml`)
 
-Runs **daily at 08:00 UTC** (and on manual dispatch). For both Stable and Testing branches:
+Runs on every push and PR: an AI-artifact guard, then builds every output the
+flake declares (`occt` and `occt-testing`, plus the standard's conformance and
+schema checks) via `nix-fast-build`.
 
-1. Downloads the latest binary from `ocbase.com`
-2. Validates download integrity: HTTP 200, file size >100 MB, ELF magic bytes
-3. Computes SRI hash and compares against `package.nix`
-4. If changed: extracts version from .NET assembly metadata, updates the correct `sources` block, test-builds the package, closes any stale PRs for the same branch, and opens a new PR
+### Update (`update.yml`)
 
-### Build CI (`ci.yml`)
+Runs **daily at 06:00 UTC** (and on manual dispatch). OCCT is a proprietary
+binary with no public API, so it ships a **bespoke `scripts/update.sh`** (a
+`custom`-type updater): it downloads the latest Stable + Testing binaries from
+`ocbase.com`, validates each (HTTP 200, size >100 MB, ELF magic), extracts the
+version from .NET assembly metadata, recomputes the SRI hash, rewrites the
+matching `sources` block, then evaluates and builds. On success it commits to
+`main`; on failure it opens an `update-failed` issue.
 
-Runs on **every PR and push to master**:
+### Maintenance (`maintenance.yml`)
 
-- Builds both `occt` and `occt-testing` packages
-- Verifies the wrapper script exists and is executable
-- Verifies the binary is a valid ELF file
-- Verifies the OpenSSL compatibility shim and wrapped libraries are present
-- Checks that runtime dependencies (`lm-sensors`, `i2c-tools`, `dmidecode`, etc.) appear in the wrapper
-- Runs `nix flake check` (evaluation only)
+Runs **weekly**: refreshes `flake.lock` (pushing only if the result still
+builds) and deletes stale `update/*` branches older than 30 days.
 
-### Stale Cleanup (`cleanup-stale.yml`)
+### Supply chain
 
-Runs **daily at 06:00 UTC** (before the upstream check):
-
-- Closes update PRs that have been open for more than 14 days
-- Deletes orphaned `update/*` branches with no associated open PR
-
-### Supply Chain Security
-
-- All GitHub Actions are **pinned to commit SHAs** (not mutable tags)
-- Downloads are validated for HTTP status, minimum file size, and ELF format before any hash comparison
-- The `fail-fast: false` strategy ensures Stable and Testing checks run independently
+- All GitHub Actions are pinned to commit SHAs (not mutable tags).
+- Downloads are validated (HTTP status, minimum file size, ELF magic) before any
+  hash comparison.
 
 ## Development
 
-Pre-commit hooks are managed via Nix and run automatically on every commit:
-
-- **treefmt** — formats all Nix files
-- **update-options-docs** — regenerates documentation if needed
-
 ```bash
-# Build stable
-nix build
+nix develop                  # dev shell with pre-commit hooks
+nix flake check              # eval + build all outputs (incl. both packages)
+nix build                    # build stable
+nix build .#occt-testing     # build testing
+nix run                      # run stable
+nix run .#occt-testing       # run testing
 
-# Build testing
-nix build .#occt-testing
-
-# Run stable
-nix run
-
-# Run testing
-nix run .#occt-testing
-
-# Check what libraries the binary needs
+# Inspect the binary's libraries / the generated wrapper
 readelf -d result/opt/occt/occt-bin | grep NEEDED
-
-# Inspect the generated wrapper
 cat result/bin/occt
 
-# Manually trigger upstream check
-gh workflow run check-upstream.yml
+# Manually trigger the updater
+gh workflow run update.yml
 ```
+
+Pre-commit hooks (from the standard): `nixfmt-rfc-style`, `typos`, `rumdl`,
+`check-readme-sections`.
 
 ## License
 
