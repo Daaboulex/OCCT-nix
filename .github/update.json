@@ -13,5 +13,18 @@
     "binary": null,
     "args": null,
     "check": "wrapper"
-  }
+  },
+  "description": "OCCT (OverClock Checking Tool) packaged for NixOS - stability/benchmark stress tool with OpenSSL 1.1 shim",
+  "topics": [
+    "nix",
+    "nixos",
+    "flake",
+    "occt",
+    "stress-test",
+    "benchmark",
+    "overclocking",
+    "hardware-monitoring",
+    "stability-testing",
+    "proprietary"
+  ]
 }
