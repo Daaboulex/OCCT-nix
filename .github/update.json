@@ -26,5 +26,8 @@
     "hardware-monitoring",
     "stability-testing",
     "proprietary"
-  ]
+  ],
+  "platforms": {
+    "aarch64-linux": "proprietary x86_64-only Linux binary; no aarch64 upstream"
+  }
 }
