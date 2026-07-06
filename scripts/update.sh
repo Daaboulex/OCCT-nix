@@ -40,7 +40,9 @@ fi
 if [ "$PACKAGE_FILE" = "version.json" ]; then
   CURRENT_VERSION=$(jq -r '.version // .rev' version.json)
 else
-  CURRENT_VERSION=$(grep -oP 'version\s*=\s*"\K[^"]+' "$PACKAGE_FILE" | head -1)
+  # The first `version =` literal in package.nix is the compat shim's;
+  # the package version lives in the per-branch `sources` blocks.
+  CURRENT_VERSION=$(grep -A3 'Stable = {' "$PACKAGE_FILE" | grep -oP 'version\s*=\s*"\K[^"]+' | head -1 || true)
 fi
 output "old_version" "$CURRENT_VERSION"
 log "Current version: $CURRENT_VERSION"
@@ -157,96 +159,146 @@ git-ls-remote)
   ;;
 
 custom)
-  # OCCT-specific: download binaries, extract version from .NET metadata, compute hashes.
-  # Handles both Stable and Testing branches independently.
-  ANY_UPDATED="false"
-  STABLE_VERSION="" TESTING_VERSION=""
+  # OCCT (ocbase.com): the binaries carry no readable version metadata (v17+)
+  # and both branch URLs re-serve files in place. The download page's
+  # __NEXT_DATA__ JSON is the source of truth: versionStr + SHA-256 checksum
+  # per edition/OS/branch. When no Testing release exists (testing == null)
+  # the branch:Testing URL serves the Stable binary, so the Testing block
+  # mirrors Stable.
+  DL_PAGE="https://www.ocbase.com/download"
+  UA="Mozilla/5.0 (X11; Linux x86_64)"
 
-  for BRANCH in Stable Testing; do
-    BRANCH_URL="https://www.ocbase.com/download-bin/edition:Personal/os:Linux/branch:$BRANCH"
-    TMPBIN="/tmp/occt-$BRANCH"
+  NEXT_DATA=""
+  for i in 1 2 3; do
+    NEXT_DATA=$(curl -sfL -A "$UA" "$DL_PAGE" \
+      | sed -n 's|.*<script id="__NEXT_DATA__" type="application/json">\(.*\)</script>.*|\1|p') || NEXT_DATA=""
+    [ -n "$NEXT_DATA" ] && break
+    log "Retry $i/3 fetching $DL_PAGE (waiting $((2 ** i))s)..."
+    sleep $((2 ** i))
+  done
+  if [ -z "$NEXT_DATA" ]; then
+    warn "Failed to fetch the OCCT download page"
+    output "updated" "false"
+    exit 2
+  fi
 
-    log "Downloading OCCT $BRANCH binary..."
-    HTTP_CODE=$(curl -sL -w '%{http_code}' -o "$TMPBIN" "$BRANCH_URL" 2>/dev/null) || {
-      warn "Failed to download $BRANCH binary"
-      output "updated" "false"
-      exit 2
+  PERSONAL=$(jq -e '[.props.pageProps.occtReleasesLinux[] | select(.edition == "Personal")][0]' <<<"$NEXT_DATA" 2>/dev/null) || {
+    err "No Linux/Personal release entry in the download page data -- page format changed, fix this scraper"
+    output "error_type" "version-detection"
+    exit 1
+  }
+  STABLE_VERSION=$(jq -re '.stable.release.version.versionStr' <<<"$PERSONAL") || {
+    err "No Stable version in the Linux/Personal release entry"
+    output "error_type" "version-detection"
+    exit 1
+  }
+  STABLE_SHA=$(jq -re '.stable.release.checksum' <<<"$PERSONAL" | tr '[:upper:]' '[:lower:]') || {
+    err "No Stable checksum in the Linux/Personal release entry"
+    output "error_type" "version-detection"
+    exit 1
+  }
+  TESTING_VERSION=$(jq -re '.testing.release.version.versionStr // empty' <<<"$PERSONAL") || TESTING_VERSION=""
+  TESTING_SHA=$(jq -re '.testing.release.checksum // empty' <<<"$PERSONAL" | tr '[:upper:]' '[:lower:]') || TESTING_SHA=""
+
+  STABLE_SRI=$(nix hash convert --hash-algo sha256 --to sri "$STABLE_SHA") || {
+    err "Published Stable checksum is not a sha256 hex digest: $STABLE_SHA"
+    output "error_type" "version-detection"
+    exit 1
+  }
+  TESTING_SRI=""
+  if [ -n "$TESTING_VERSION" ]; then
+    TESTING_SRI=$(nix hash convert --hash-algo sha256 --to sri "$TESTING_SHA") || {
+      err "Published Testing checksum is not a sha256 hex digest: $TESTING_SHA"
+      output "error_type" "version-detection"
+      exit 1
     }
+  fi
 
-    if [ "$HTTP_CODE" -ne 200 ]; then
-      warn "$BRANCH download returned HTTP $HTTP_CODE"
-      output "updated" "false"
-      exit 2
-    fi
-
-    # Validate: must be >100MB ELF binary
-    FILE_SIZE=$(stat -c%s "$TMPBIN")
-    if [ "$FILE_SIZE" -lt 104857600 ]; then
-      warn "$BRANCH binary too small (${FILE_SIZE} bytes) — likely an error page"
-      output "updated" "false"
-      exit 2
-    fi
-    file "$TMPBIN" | grep -q ELF || {
-      warn "$BRANCH download is not an ELF binary"
-      output "updated" "false"
-      exit 2
-    }
-
-    # Extract version from .NET assembly metadata
-    NEW_VERSION=$(strings "$TMPBIN" | grep -oP 'assemblyIdentity version="\K[0-9]+\.[0-9]+\.[0-9]+' | head -1)
-    if [ -z "$NEW_VERSION" ]; then
-      NEW_VERSION=$(strings "$TMPBIN" | grep -oP '^\t\K[0-9]+\.[0-9]+\.[0-9]+(?=\.[0-9]+$)' | head -1)
-    fi
-    if [ -z "$NEW_VERSION" ]; then
-      warn "Could not extract version from $BRANCH binary"
-      output "updated" "false"
-      exit 2
-    fi
-
-    # Compute SRI hash
-    NEW_HASH=$(nix hash file --sri "$TMPBIN")
-
-    log "$BRANCH: version=$NEW_VERSION hash=$NEW_HASH"
-
-    if [ "$BRANCH" = "Stable" ]; then
-      STABLE_VERSION="$NEW_VERSION"
+  # sets EXPECT_VERSION/EXPECT_SHA/EXPECT_SRI for branch $1
+  expect_for() {
+    if [ "$1" = "Stable" ] || [ -z "$TESTING_VERSION" ]; then
+      EXPECT_VERSION="$STABLE_VERSION" EXPECT_SHA="$STABLE_SHA" EXPECT_SRI="$STABLE_SRI"
     else
-      TESTING_VERSION="$NEW_VERSION"
+      EXPECT_VERSION="$TESTING_VERSION" EXPECT_SHA="$TESTING_SHA" EXPECT_SRI="$TESTING_SRI"
     fi
+  }
 
-    # Get current values from package.nix
-    BLOCK_START=$(grep -n "${BRANCH} = {" "$PACKAGE_FILE" | head -1 | cut -d: -f1)
+  # sets BLOCK_START/CUR_VER/CUR_HASH for branch $1
+  read_block() {
+    BLOCK_START=$(grep -n "$1 = {" "$PACKAGE_FILE" | head -1 | cut -d: -f1)
     if [ -z "$BLOCK_START" ]; then
-      warn "Could not find $BRANCH block in $PACKAGE_FILE"
-      continue
+      err "Could not find $1 block in $PACKAGE_FILE"
+      output "error_type" "version-detection"
+      exit 1
     fi
-
     CUR_VER=$(tail -n +"$BLOCK_START" "$PACKAGE_FILE" | grep -oP 'version\s*=\s*"\K[^"]+' | head -1)
     CUR_HASH=$(tail -n +"$BLOCK_START" "$PACKAGE_FILE" | grep -oP 'hash\s*=\s*"\K[^"]+' | head -1)
+  }
 
-    if [ "$CUR_VER" = "$NEW_VERSION" ] && [ "sha256-$CUR_HASH" = "$NEW_HASH" ] 2>/dev/null; then
-      log "$BRANCH already up to date ($NEW_VERSION)"
+  # Phase 1: download + verify every branch that needs an update against the
+  # published checksum. Nothing is written until every needed branch has
+  # verified, so a failure here can never leave package.nix half-updated.
+  NEED_UPDATE=""
+  for BRANCH in Stable Testing; do
+    expect_for "$BRANCH"
+    read_block "$BRANCH"
+
+    if [ "$CUR_VER" = "$EXPECT_VERSION" ] && [ "$CUR_HASH" = "$EXPECT_SRI" ]; then
+      log "$BRANCH already up to date ($CUR_VER)"
       continue
     fi
 
-    log "Updating $BRANCH: $CUR_VER → $NEW_VERSION"
-    ANY_UPDATED="true"
+    BRANCH_URL="https://www.ocbase.com/download-bin/edition:Personal/os:Linux/branch:$BRANCH"
+    TMPBIN=$(mktemp "/tmp/occt-$BRANCH.XXXXXX")
 
-    # Update version line
-    VER_OFFSET=$(tail -n +"$BLOCK_START" "$PACKAGE_FILE" | grep -n 'version =' | head -1 | cut -d: -f1)
-    VER_LINE=$((BLOCK_START + VER_OFFSET - 1))
-    sed -i "${VER_LINE}s|version = \".*\"|version = \"${NEW_VERSION}\"|" "$PACKAGE_FILE"
+    log "Downloading OCCT $BRANCH binary..."
+    DOWNLOAD_OK=""
+    for attempt in 1 2; do
+      HTTP_CODE=$(curl -sL -w '%{http_code}' -o "$TMPBIN" "$BRANCH_URL" 2>/dev/null) || HTTP_CODE=""
+      if [ "$HTTP_CODE" = "200" ] && [ "$(stat -c%s "$TMPBIN")" -ge 104857600 ]; then
+        DOWNLOAD_OK=1
+        break
+      fi
+      if [ "$attempt" -lt 2 ]; then
+        log "$BRANCH download attempt $attempt failed (HTTP ${HTTP_CODE:-none}); retrying in 10s..."
+        sleep 10
+      fi
+    done
+    if [ -z "$DOWNLOAD_OK" ]; then
+      warn "Failed to download a valid $BRANCH binary (HTTP 200, >=100MB)"
+      rm -f "$TMPBIN"
+      output "updated" "false"
+      exit 2
+    fi
 
-    # Update hash line
-    HASH_OFFSET=$(tail -n +"$BLOCK_START" "$PACKAGE_FILE" | grep -n 'hash =' | head -1 | cut -d: -f1)
-    HASH_LINE=$((BLOCK_START + HASH_OFFSET - 1))
-    sed -i "${HASH_LINE}s|hash = \".*\"|hash = \"${NEW_HASH}\"|" "$PACKAGE_FILE"
-
+    GOT_SHA=$(sha256sum "$TMPBIN" | cut -d' ' -f1)
     rm -f "$TMPBIN"
+    if [ "$GOT_SHA" != "$EXPECT_SHA" ]; then
+      err "$BRANCH checksum mismatch: page publishes $EXPECT_SHA, download is $GOT_SHA"
+      output "error_type" "verification-error"
+      exit 1
+    fi
+    NEED_UPDATE="$NEED_UPDATE $BRANCH"
   done
 
-  # Report using Stable version as the primary
-  output "new_version" "${STABLE_VERSION:-unknown}"
+  # Phase 2: every needed branch verified; write version + hash per block.
+  ANY_UPDATED="false"
+  for BRANCH in $NEED_UPDATE; do
+    expect_for "$BRANCH"
+    read_block "$BRANCH"
+    log "Updating $BRANCH: $CUR_VER -> $EXPECT_VERSION"
+    ANY_UPDATED="true"
+
+    VER_OFFSET=$(tail -n +"$BLOCK_START" "$PACKAGE_FILE" | grep -n 'version =' | head -1 | cut -d: -f1)
+    VER_LINE=$((BLOCK_START + VER_OFFSET - 1))
+    sed -i "${VER_LINE}s|version = \".*\"|version = \"${EXPECT_VERSION}\"|" "$PACKAGE_FILE"
+
+    HASH_OFFSET=$(tail -n +"$BLOCK_START" "$PACKAGE_FILE" | grep -n 'hash =' | head -1 | cut -d: -f1)
+    HASH_LINE=$((BLOCK_START + HASH_OFFSET - 1))
+    sed -i "${HASH_LINE}s|hash = \".*\"|hash = \"${EXPECT_SRI}\"|" "$PACKAGE_FILE"
+  done
+
+  output "new_version" "$STABLE_VERSION"
   output "upstream_url" "https://www.ocbase.com"
 
   if [ "$ANY_UPDATED" = "false" ]; then
