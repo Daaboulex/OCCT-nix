@@ -9,7 +9,7 @@
       inputs.nixpkgs.follows = "nixpkgs";
     };
     std = {
-      url = "github:Daaboulex/nix-packaging-standard?ref=v2.11.0";
+      url = "github:Daaboulex/nix-packaging-standard?ref=v2.13.0";
       inputs.nixpkgs.follows = "nixpkgs";
       inputs.git-hooks.follows = "git-hooks";
     };
@@ -41,11 +41,16 @@
           packages.occt-testing = pkgs.callPackage ./package.nix { branch = "Testing"; };
           packages.default = self'.packages.occt;
 
-          checks.binary-pristine = pkgs.runCommand "occt-binary-pristine" { } ''
-            cmp ${self'.packages.occt.src} ${self'.packages.occt}/opt/occt/occt-bin
-            cmp ${self'.packages.occt-testing.src} ${self'.packages.occt-testing}/opt/occt/occt-bin
-            touch "$out"
-          '';
+          checks.binary-pristine = inputs.std.lib.pristineBinaryCheck {
+            inherit pkgs;
+            package = self'.packages.occt;
+            binaryPath = "opt/occt/occt-bin";
+          };
+          checks.binary-pristine-testing = inputs.std.lib.pristineBinaryCheck {
+            inherit pkgs;
+            package = self'.packages.occt-testing;
+            binaryPath = "opt/occt/occt-bin";
+          };
 
           apps.occt = {
             type = "app";
