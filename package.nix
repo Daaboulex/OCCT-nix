@@ -2,7 +2,6 @@
   stdenv,
   lib,
   fetchurl,
-  autoPatchelfHook,
   pkg-config,
   patchelf,
   # Runtime dependencies
@@ -277,16 +276,9 @@ stdenv.mkDerivation rec {
   dontUnpack = true;
 
   nativeBuildInputs = [
-    autoPatchelfHook
     copyDesktopItems
     patchelf
     icoutils
-  ];
-
-  # Only the binary's direct NEEDED libs (from readelf -d)
-  buildInputs = [
-    zlib
-    stdenv.cc.cc.lib
   ];
 
   installPhase = ''
@@ -339,15 +331,21 @@ stdenv.mkDerivation rec {
     export DOTNET_SYSTEM_GLOBALIZATION_INVARIANT=0
     export DOTNET_BUNDLE_EXTRACT_BASE_DIR="''$OCCT_HOME/runtime"
 
+    if [ ! -e /lib64/ld-linux-x86-64.so.2 ]; then
+      echo "occt: no /lib64 dynamic loader; enable nix-ld (myModules.nix.nix-ld) or run on an FHS distro" >&2
+      exit 1
+    fi
+    export NIX_LD="''${NIX_LD:-@nixLd@}"
+
     cd "''$OCCT_HOME"
     exec "''$OCCT_BIN" "''$@"
     WRAPPER
 
         chmod +x $out/bin/occt
         substituteInPlace $out/bin/occt \
-          --replace "@out@" "$out" \
-          --replace "@ldpath@" "${lib.makeLibraryPath runtimeLibs}" \
-          --replace "@binpath@" "${
+          --replace-fail "@out@" "$out" \
+          --replace-fail "@ldpath@" "${lib.makeLibraryPath runtimeLibs}" \
+          --replace-fail "@binpath@" "${
             lib.makeBinPath [
               pciutils
               dmidecode
@@ -364,7 +362,8 @@ stdenv.mkDerivation rec {
               i2c-tools
             ]
           }" \
-          --replace "@hwdata@" "${hwdata}"
+          --replace-fail "@hwdata@" "${hwdata}" \
+          --replace-fail "@nixLd@" "${stdenv.cc.libc}/lib/ld-linux-x86-64.so.2"
 
         # Install the icons from the ICO file
         cp $icon occt.ico
@@ -406,10 +405,6 @@ stdenv.mkDerivation rec {
     patchelf --add-needed libocct_compat.so $out/lib/openssl-wrapped/libcrypto.so.3
     patchelf --set-rpath "$out/lib/occt-compat" $out/lib/openssl-wrapped/libssl.so.3
     patchelf --set-rpath "$out/lib/occt-compat" $out/lib/openssl-wrapped/libcrypto.so.3
-
-    # Force the binary to use our wrapped OpenSSL and shim
-    patchelf --add-needed libocct_compat.so $out/opt/occt/occt-bin
-    patchelf --add-rpath "$out/lib/occt-compat:$out/lib/openssl-wrapped" $out/opt/occt/occt-bin
   '';
 
   desktopItems = [

@@ -41,6 +41,12 @@
           packages.occt-testing = pkgs.callPackage ./package.nix { branch = "Testing"; };
           packages.default = self'.packages.occt;
 
+          checks.binary-pristine = pkgs.runCommand "occt-binary-pristine" { } ''
+            cmp ${self'.packages.occt.src} ${self'.packages.occt}/opt/occt/occt-bin
+            cmp ${self'.packages.occt-testing.src} ${self'.packages.occt-testing}/opt/occt/occt-bin
+            touch "$out"
+          '';
+
           apps.occt = {
             type = "app";
             program = "${self'.packages.occt}/bin/occt";
