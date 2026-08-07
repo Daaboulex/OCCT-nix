@@ -352,7 +352,8 @@ custom)
     exit 1
   fi
 
-  log "OCCT update verified: ${STABLE_VERSION} (Stable), ${TESTING_VERSION} (Testing)"
+  expect_for Testing
+  log "OCCT update verified: ${STABLE_VERSION} (Stable), ${EXPECT_VERSION} (Testing)"
   exit 0
   ;;
 
