@@ -214,9 +214,13 @@ custom)
     }
   fi
 
+  # Set when the branch:Testing endpoint is observed serving the Stable binary
+  # even though the page publishes a distinct Testing release.
+  TESTING_SERVES_STABLE=""
+
   # sets EXPECT_VERSION/EXPECT_SHA/EXPECT_SRI for branch $1
   expect_for() {
-    if [ "$1" = "Stable" ] || [ -z "$TESTING_VERSION" ]; then
+    if [ "$1" = "Stable" ] || [ -z "$TESTING_VERSION" ] || [ -n "$TESTING_SERVES_STABLE" ]; then
       EXPECT_VERSION="$STABLE_VERSION" EXPECT_SHA="$STABLE_SHA" EXPECT_SRI="$STABLE_SRI"
     else
       EXPECT_VERSION="$TESTING_VERSION" EXPECT_SHA="$TESTING_SHA" EXPECT_SRI="$TESTING_SRI"
@@ -274,9 +278,24 @@ custom)
     GOT_SHA=$(sha256sum "$TMPBIN" | cut -d' ' -f1)
     rm -f "$TMPBIN"
     if [ "$GOT_SHA" != "$EXPECT_SHA" ]; then
-      err "$BRANCH checksum mismatch: page publishes $EXPECT_SHA, download is $GOT_SHA"
-      output "error_type" "verification-error"
-      exit 1
+      # The published Testing metadata can lead the binary: when no separate
+      # testing build is live the endpoint re-serves Stable. Identify what was
+      # actually served from its hash instead of trusting the metadata, and
+      # mirror Stable exactly as the testing == null path does.
+      if [ "$BRANCH" = "Testing" ] && [ "$GOT_SHA" = "$STABLE_SHA" ]; then
+        log "branch:Testing served the Stable binary ($STABLE_VERSION), not the published Testing $TESTING_VERSION -- mirroring Stable"
+        TESTING_SERVES_STABLE=1
+        expect_for "$BRANCH"
+        read_block "$BRANCH"
+        if [ "$CUR_VER" = "$EXPECT_VERSION" ] && [ "$CUR_HASH" = "$EXPECT_SRI" ]; then
+          log "$BRANCH already up to date ($CUR_VER)"
+          continue
+        fi
+      else
+        err "$BRANCH checksum mismatch: page publishes $EXPECT_SHA, download is $GOT_SHA"
+        output "error_type" "verification-error"
+        exit 1
+      fi
     fi
     NEED_UPDATE="$NEED_UPDATE $BRANCH"
   done
