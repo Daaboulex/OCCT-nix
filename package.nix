@@ -200,12 +200,12 @@ let
     Stable = {
       version = "17.0.14";
       url = "https://www.ocbase.com/download-bin/edition:Personal/os:Linux/branch:Stable";
-      hash = "sha256-qhXbaN/1S4uB0gE4HcGgbfnQAr/2nb7C5Ee2H6yigtQ=";
+      hash = "sha256-+tyFct39kKrwmiCCRlQWAgrpKAgbGnfaAlKhMc2dujA=";
     };
     Testing = {
       version = "17.0.14";
       url = "https://www.ocbase.com/download-bin/edition:Personal/os:Linux/branch:Testing";
-      hash = "sha256-qhXbaN/1S4uB0gE4HcGgbfnQAr/2nb7C5Ee2H6yigtQ=";
+      hash = "sha256-+tyFct39kKrwmiCCRlQWAgrpKAgbGnfaAlKhMc2dujA=";
     };
   };
 
