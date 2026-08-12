@@ -245,7 +245,4 @@ Pre-commit hooks (from the standard): `nixfmt-rfc-style`, `typos`, `rumdl`,
 - **Unfree gate**: requires `nixpkgs.config.allowUnfree = true` in your Nix configuration.
 
 <!-- BEGIN generated:footer -->
----
-
-*Maintained as part of the [Daaboulex](https://github.com/Daaboulex) NixOS ecosystem.*
 <!-- END generated:footer -->
