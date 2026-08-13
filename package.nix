@@ -338,7 +338,11 @@ stdenv.mkDerivation rec {
     export NIX_LD="''${NIX_LD:-@nixLd@}"
 
     cd "''$OCCT_HOME"
-    exec "''$OCCT_BIN" "''$@"
+    # Telemetry has no opt-out switch; local stress-testing needs no network.
+    # Run OCCT in a private network namespace (loopback only) so any upload
+    # attempt fails closed. Device access, sensors and the Wayland/X11 sockets
+    # are filesystem, not network, so they are unaffected.
+    exec @unshare@ --net --map-root-user -- @shell@ -c '@ip@ link set lo up 2>/dev/null || true; exec "''$@"' occt-netns "''$OCCT_BIN" "''$@"
     WRAPPER
 
         chmod +x $out/bin/occt
@@ -363,6 +367,9 @@ stdenv.mkDerivation rec {
             ]
           }" \
           --replace-fail "@hwdata@" "${hwdata}" \
+          --replace-fail "@unshare@" "${util-linux}/bin/unshare" \
+          --replace-fail "@ip@" "${iproute2}/bin/ip" \
+          --replace-fail "@shell@" "${stdenv.shell}" \
           --replace-fail "@nixLd@" "${stdenv.cc.libc}/lib/ld-linux-x86-64.so.2"
 
         # Install the icons from the ICO file
