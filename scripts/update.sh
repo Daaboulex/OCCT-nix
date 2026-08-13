@@ -170,8 +170,8 @@ custom)
 
   NEXT_DATA=""
   for i in 1 2 3; do
-    NEXT_DATA=$(curl -sfL -A "$UA" "$DL_PAGE" \
-      | sed -n 's|.*<script id="__NEXT_DATA__" type="application/json">\(.*\)</script>.*|\1|p') || NEXT_DATA=""
+    NEXT_DATA=$(curl -sfL -A "$UA" "$DL_PAGE" |
+      sed -n 's|.*<script id="__NEXT_DATA__" type="application/json">\(.*\)</script>.*|\1|p') || NEXT_DATA=""
     [ -n "$NEXT_DATA" ] && break
     log "Retry $i/3 fetching $DL_PAGE (waiting $((2 ** i))s)..."
     sleep $((2 ** i))

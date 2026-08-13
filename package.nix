@@ -432,11 +432,11 @@ stdenv.mkDerivation rec {
   meta = with lib; {
     description = "OCCT - OverClock Checking Tool (stability & benchmark)";
     longDescription = ''
-      OCCT is the most popular all-in-one stability check and stress test tool available. 
-      It generates heavy loads on your components while checking for errors, and 
+      OCCT is the most popular all-in-one stability check and stress test tool available.
+      It generates heavy loads on your components while checking for errors, and
       detects hardware issues before they become critical.
 
-      This NixOS package uses a custom compatibility shim to support the internal 
+      This NixOS package uses a custom compatibility shim to support the internal
       .NET runtime's dependency on legacy OpenSSL 1.1 symbols.
     '';
     homepage = "https://www.ocbase.com/";
