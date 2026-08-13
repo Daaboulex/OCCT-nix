@@ -55,10 +55,12 @@
           apps.occt = {
             type = "app";
             program = "${self'.packages.occt}/bin/occt";
+            meta.description = "OCCT stability and stress-testing tool (stable branch)";
           };
           apps.occt-testing = {
             type = "app";
             program = "${self'.packages.occt-testing}/bin/occt";
+            meta.description = "OCCT stability and stress-testing tool (testing branch)";
           };
           apps.default = self'.apps.occt;
         };
