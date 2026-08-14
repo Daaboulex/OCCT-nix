@@ -443,6 +443,12 @@ stdenv.mkDerivation rec {
     license = licenses.unfree;
     platforms = [ "x86_64-linux" ];
     mainProgram = "occt";
-    maintainers = [ "Daaboulex" ];
+    maintainers = [
+      {
+        name = "Daaboulex";
+        github = "Daaboulex";
+        githubId = 39669593;
+      }
+    ];
   };
 }
