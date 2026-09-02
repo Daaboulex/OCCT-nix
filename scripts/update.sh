@@ -469,7 +469,8 @@ elif [ "$VERIFY_CHECK" = "elf" ]; then
     FOUND=$(find result/lib/ -name "*.so" 2>/dev/null | head -1)
   fi
   if [ -n "$FOUND" ]; then
-    file "$FOUND" | grep -q ELF || {
+    FOUND_FILE_TYPE=$(file "$FOUND" || true)
+    grep -q ELF <<<"$FOUND_FILE_TYPE" || {
       err "Not an ELF binary: $FOUND"
       output "error_type" "verification-error"
       exit 1
@@ -480,7 +481,8 @@ elif [ "$VERIFY_CHECK" = "eval" ]; then
 elif [ "$VERIFY_CHECK" = "desktop" ]; then
   log "Step 3/4: Desktop file verification"
   nix build .#default
-  find result/share/applications/ -name "*.desktop" 2>/dev/null | head -1 | grep -q . || warn "No desktop file found"
+  DESKTOP_FILE=$(find result/share/applications/ -name "*.desktop" 2>/dev/null | head -1 || true)
+  grep -q . <<<"$DESKTOP_FILE" || warn "No desktop file found"
 else
   log "Step 3/4: No binary verification configured — skipping"
 fi
@@ -488,7 +490,8 @@ fi
 # 4. Runtime dependency check (ldd)
 if [ -n "$VERIFY_BINARY" ]; then
   log "Step 4/4: ldd check"
-  if file ./result/bin/"$VERIFY_BINARY" 2>/dev/null | grep -q ELF; then
+  BINARY_FILE_TYPE=$(file ./result/bin/"$VERIFY_BINARY" 2>/dev/null || true)
+  if grep -q ELF <<<"$BINARY_FILE_TYPE"; then
     MISSING=$(ldd ./result/bin/"$VERIFY_BINARY" 2>&1 | grep "not found" || true)
     if [ -n "$MISSING" ]; then
       err "Missing shared libraries:"
