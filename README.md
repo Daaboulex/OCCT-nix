@@ -25,7 +25,7 @@ A Nix flake that wraps the upstream OCCT Linux binary into a NixOS-portable pack
 
 - **Daily upstream check** at 06:00 UTC tracking both Stable and Testing channels (commits to `main` on hash change)
 - **OpenSSL 1.1 compatibility shim** — bundled .NET runtime targets removed OpenSSL 1.1 symbols; this flake compiles `libocct_compat.so` to wrap them onto OpenSSL 3.x
-- **ICU + Nix-store portability shims** — unversioned `u_strlen`, redirected app-data path under `~/.local/share/occt/`
+- **ICU + Nix-store portability shims** — unversioned `u_strlen`, redirected app-data path under `$XDG_DATA_HOME/occt/` (default `~/.local/share/occt/`)
 - **Hardware discovery PATH** — bundles `dmidecode`, `smartmontools`, `pciutils`, `usbutils`, `lm_sensors`, `nvme-cli`, `kmod`, `util-linux`, `iproute2`, `libva-utils`, `vulkan-tools`, `i2c-tools`
 - **Pre-publish verification** — wrapper exists, ELF magic valid, shim libs present, runtime deps wired (`ci.yml`)
 
@@ -33,15 +33,15 @@ A Nix flake that wraps the upstream OCCT Linux binary into a NixOS-portable pack
 
 - **OpenSSL 1.1 Compatibility Shim**: OCCT bundles a .NET runtime that links against legacy OpenSSL 1.1 symbols (`ERR_put_error`, `SSL_state`, `SSLeay`, etc.) removed in OpenSSL 3.x. A custom C shim (`libocct_compat.so`) wraps the modern 3.x API and is injected via `LD_PRELOAD` + `patchelf --add-needed` into a wrapped OpenSSL layer.
 - **ICU Version Shim**: Provides an unversioned `u_strlen` symbol forwarding to the versioned `u_strlen_76`, since the .NET runtime may look for the unversioned symbol.
-- **Nix Store Portability**: OCCT expects to write config/logs next to its binary. The wrapper redirects all application data to `~/.local/share/occt/` and creates `app_folder_in_home` + `disable_update` trigger files.
+- **Nix Store Portability**: OCCT expects to write config/logs next to its binary. The wrapper redirects all application data to `$XDG_DATA_HOME/occt/` (default `~/.local/share/occt/`) and creates `app_folder_in_home` + `disable_update` trigger files.
 - **Full Hardware Discovery**: Runtime `PATH` includes `dmidecode`, `smartmontools`, `pciutils`, `usbutils`, `lm_sensors`, `nvme-cli`, `kmod`, `util-linux`, `iproute2`, `libva-utils`, `vulkan-tools`, and `i2c-tools`.
-- **Memory Temperature Monitoring**: Wrapper loads `i2c-dev` and `jc42` kernel modules at startup for DIMM temperature sensors via I2C/SMBus. `i2c-tools` is included in both `LD_LIBRARY_PATH` and `PATH`.
+- **Memory Temperature Monitoring**: DIMM temperature sensors are read over I2C/SMBus through the `i2c-dev` and `jc42` kernel modules, which the host loads (see Privileged Mode). `i2c-tools` is included in both `LD_LIBRARY_PATH` and `PATH`.
 - **Stable & Testing Branches**: Supports both OCCT upstream release channels. Default is Stable; pass `branch = "Testing"` to track the beta/testing releases.
 - **GPU Detection**: `libdrm` (including `libdrm_amdgpu.so.1`), `libpciaccess`, `libdisplay-info`, and `hwdata` (PCI ID database via `HWDATA_PATH`) for proper GPU name resolution, VRAM reporting, and display info.
 - **CPU Topology**: `hwloc` (`libhwloc.so`) for core counts, instruction sets, and hyperthreading detection.
 - **Storage Detection**: `systemdLibs` (`libudev.so`) for block device enumeration (size, rotational flag). `smartmontools` for SMART data.
 - **OpenCL Support**: `ocl-icd` (OpenCL ICD loader) with `OCL_ICD_VENDORS` pointing to `/run/opengl-driver/etc/OpenCL/vendors/` for NixOS ICD discovery. Requires a registered OpenCL implementation at the system level (see below).
-- **MSR Access**: Wrapper attempts `modprobe msr` for CPU frequency/voltage reading, plus `modprobe i2c-dev` and `modprobe jc42` for DIMM temperature sensors (all fail silently without root).
+- **MSR Access**: CPU frequency and voltage come from the `msr` kernel module, which the host loads (see Privileged Mode).
 - **Wayland + X11**: `GDK_BACKEND=wayland,x11` with `wayland` client libraries included.
 - **Desktop Integration**: `.desktop` file and icons extracted from the upstream favicon.
 
@@ -142,7 +142,7 @@ Same as AMD but with `iris` as the gallium driver name.
 
 ## Privileged Mode
 
-OCCT's System Tuning feature and full sensor access require elevated privileges. The wrapper attempts `modprobe msr`, `modprobe i2c-dev`, and `modprobe jc42` automatically but full functionality (including memory DIMM temperatures) requires running as root:
+OCCT's sensors need three kernel facilities the host provides; a user process cannot load modules, so the wrapper does not try. On NixOS set `hardware.cpu.x86.msr.enable = true;` (loads `msr`), `hardware.i2c.enable = true;` (loads `i2c-dev` and grants the `i2c` group the bus), and `boot.kernelModules = [ "jc42" ];` (DIMM temperatures). Reading MSRs still needs CAP_SYS_RAWIO, and System Tuning needs root:
 
 ```bash
 sudo occt
@@ -178,7 +178,7 @@ Hardware discovery tools: `pciutils`, `dmidecode`, `smartmontools`, `usbutils`, 
 ## Known Limitations
 
 - **System Tuning**: Only supports Intel Granite Rapids. AMD Zen 5 shows "NO SUPPORTED HARDWARE" — this is upstream, not a packaging issue.
-- **Memory temperatures require root**: DIMM temperature sensors are accessed via I2C/SMBus which requires `i2c-dev` and `jc42` kernel modules. The wrapper loads these automatically but they need root privileges. Run `sudo occt` for full sensor access.
+- **Memory temperatures require root**: DIMM temperature sensors are accessed via I2C/SMBus which requires `i2c-dev` and `jc42` kernel modules. The host loads them (see Privileged Mode); membership of the `i2c` group reads them, and `sudo occt` gives full sensor access.
 - **OpenCL requires system config**: The package provides the ICD loader but the actual driver (RustiCL, NVIDIA, etc.) must be registered at the NixOS system level via `hardware.graphics.extraPackages`.
 - **`RUSTICL_ENABLE` needed for AMD/Intel**: RustiCL doesn't auto-detect gallium drivers yet — the env var must be set at the session level.
 - **ZFS warning**: "The ZFS modules cannot be auto-loaded" is harmless if you don't use ZFS. OCCT checks for ZFS storage pools as part of hardware discovery.

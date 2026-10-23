@@ -296,29 +296,24 @@ stdenv.mkDerivation rec {
         # Wrapper script — handles $HOME expansion at runtime
         cat > $out/bin/occt << 'WRAPPER'
     #!/usr/bin/env bash
-    # OCCT wrapper for NixOS
+    set -eu
 
-    OCCT_HOME="''${HOME}/.local/share/occt"
+    OCCT_HOME="''${XDG_DATA_HOME:-''$HOME/.local/share}/occt"
     OCCT_BIN="@out@/opt/occt/occt-bin"
 
     mkdir -p "''$OCCT_HOME"
     touch "''$OCCT_HOME/app_folder_in_home"
     touch "''$OCCT_HOME/disable_update"
 
-    # Load kernel modules for hardware sensors (silent fail for non-root;
-    # succeeds when run as root or if modules already loaded via NixOS config)
-    modprobe msr 2>/dev/null || true
-    modprobe i2c-dev 2>/dev/null || true
-    modprobe jc42 2>/dev/null || true
-
     # OCCT extracts native monitoring libs at runtime (OcctMonitoringLib).
     # /tmp is noexec on NixOS → dlopen fails → SIGABRT.
-    # Redirect to /var/tmp (exec-allowed) or OCCT_HOME.
     export TMPDIR="''$OCCT_HOME/tmp"
     mkdir -p "''$TMPDIR"
 
     # Clean stale .NET bundle extractions (one per binary hash, never auto-cleaned)
-    find "''$OCCT_HOME/runtime/occt-bin/" -mindepth 1 -maxdepth 1 -type d -mtime +7 -exec rm -rf {} + 2>/dev/null || true
+    if [ -d "''$OCCT_HOME/runtime/occt-bin" ]; then
+      find "''$OCCT_HOME/runtime/occt-bin/" -mindepth 1 -maxdepth 1 -type d -mtime +7 -exec rm -rf {} +
+    fi
 
     # Set up the environment
     # Priority: wrapped-openssl > runtimeLibs > existing LD_LIBRARY_PATH
@@ -342,7 +337,7 @@ stdenv.mkDerivation rec {
     # Run OCCT in a private network namespace (loopback only) so any upload
     # attempt fails closed. Device access, sensors and the Wayland/X11 sockets
     # are filesystem, not network, so they are unaffected.
-    exec @unshare@ --net --map-root-user -- @shell@ -c '@ip@ link set lo up 2>/dev/null || true; exec "''$@"' occt-netns "''$OCCT_BIN" "''$@"
+    exec @unshare@ --net --map-root-user -- @shell@ -c '@ip@ link set lo up && exec "''$@"' occt-netns "''$OCCT_BIN" "''$@"
     WRAPPER
 
         chmod +x $out/bin/occt
@@ -375,16 +370,8 @@ stdenv.mkDerivation rec {
         # Install the icons from the ICO file
         cp $icon occt.ico
         icotool -x occt.ico
-        for size in 16 24 32 48 64 128 256; do
-          # icotool -x produces files like occt_1_128x128x32.png
-          if ls occt_*''${size}x''${size}x*.png >/dev/null 2>&1; then
-            mkdir -p $out/share/icons/hicolor/''${size}x''${size}/apps
-            cp occt_*''${size}x''${size}x*.png $out/share/icons/hicolor/''${size}x''${size}/apps/occt.png || true
-          fi
-        done
-        # Fallback to a generic location if needed
-        mkdir -p $out/share/pixmaps
-        cp occt_*256x256x*.png $out/share/pixmaps/occt.png || cp occt_*.png $out/share/pixmaps/occt.png || true
+        install -Dm644 occt_1_256x256x32.png $out/share/icons/hicolor/256x256/apps/occt.png
+        install -Dm644 occt_1_256x256x32.png $out/share/pixmaps/occt.png
 
         runHook postInstall
   '';
