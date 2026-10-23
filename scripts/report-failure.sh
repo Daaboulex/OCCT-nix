@@ -39,45 +39,32 @@ log_section() {
   printf '```\n</details>\n'
 }
 
-gh_retry() {
-  local attempt out
-  for attempt in 1 2 3; do
-    if out=$(gh "$@"); then
-      printf '%s' "$out"
-      return 0
-    fi
-    echo "report-failure.sh: gh $1 $2 failed (attempt $attempt of 3)" >&2
-    if [ "$attempt" -lt 3 ]; then sleep $((attempt * ${REPORT_RETRY_DELAY:-10})); fi
-  done
-  return 1
-}
-
-open=$(gh_retry issue list --label "$label" --state open --limit 100 --json number,title,createdAt)
+open=$(gh issue list --label "$label" --state open --limit 100 --json number,title,createdAt)
 mapfile -t same < <(jq -r --arg p "$prefix" \
   '[.[] | select(.title | startswith($p))] | sort_by(.number)[] | [.number, .createdAt[0:10], .title] | @tsv' <<<"$open")
 
 if [ "${#same[@]}" -eq 0 ]; then
   {
-    printf 'First reported on %s by %s\n\n' "$today" "$run_url"
+    printf 'Failing since %s. Latest run: %s\n\n' "$today" "$run_url"
     cat "$head_file"
     log_section
   } >"$work/body"
-  url=$(gh_retry issue create --label "$label" --title "$title" --body-file "$work/body")
+  url=$(gh issue create --label "$label" --title "$title" --body-file "$work/body")
   number="${url##*/}"
 else
   IFS=$'\t' read -r number since old_title <<<"${same[0]}"
   for extra in "${same[@]:1}"; do
-    gh_retry issue close "${extra%%$'\t'*}" --reason "not planned" --comment "The same failure is tracked in #$number." >/dev/null
+    gh issue close "${extra%%$'\t'*}" --reason "not planned" --comment "The same failure is tracked in #$number."
   done
   days=$((($(date -u -d "$today" +%s) - $(date -u -d "$since" +%s)) / 86400))
   {
-    printf 'Open since %s (%s days); no run has succeeded since. Latest failing run on %s: %s\n\n' "$since" "$days" "$today" "$run_url"
+    printf 'Failing since %s, %s days. Latest run on %s: %s\n\n' "$since" "$days" "$today" "$run_url"
     cat "$head_file"
     log_section
   } >"$work/body"
-  gh_retry issue edit "$number" --title "$title" --body-file "$work/body" >/dev/null
+  gh issue edit "$number" --title "$title" --body-file "$work/body"
   if [ "$title" != "$old_title" ]; then
-    gh_retry issue comment "$number" --body "Now reported as: $title (previously: $old_title). Run: $run_url" >/dev/null
+    gh issue comment "$number" --body "The failure changed on $today: $title. Run: $run_url"
   fi
 fi
 

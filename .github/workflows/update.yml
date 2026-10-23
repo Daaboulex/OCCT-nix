@@ -8,10 +8,6 @@ on:
     - cron: "0 6 * * *"
   workflow_dispatch:
 
-concurrency:
-  group: ${{ github.workflow }}
-  cancel-in-progress: false
-
 permissions:
   contents: write
   issues: write
@@ -323,7 +319,6 @@ jobs:
         run: bash scripts/classify-build-failure.sh /tmp/update.log
 
       - name: Report the failure
-        id: report
         env:
           GH_TOKEN: ${{ github.token }}
           ERROR_TYPE: ${{ (needs.verify.result == 'failure' && 'build-error') || needs.update.outputs.error_type || (needs.update.outputs.stalled == 'true' && 'stalled') || '' }}
@@ -337,25 +332,14 @@ jobs:
           FAILED_DRVS: ${{ steps.classify.outputs.failed_drvs }}
         run: |
           error_type="${ERROR_TYPE:-unknown}"
+          old="${OLD_VERSION:-?}"
+          new="${NEW_VERSION:-?}"
           pkg="${PKG:-${GITHUB_REPOSITORY#*/}}"
-          versions=""
-          if [ -n "$OLD_VERSION$NEW_VERSION" ]; then
-            versions=" ${OLD_VERSION:-(current version not read)} -> ${NEW_VERSION:-(target version not read)}"
-          fi
           title_class="$error_type"
           if [ -n "$FAIL_CLASS" ] && [ "$FAIL_CLASS" != unclassified ]; then
             title_class="$FAIL_CLASS"
           fi
-          title="Update $pkg$versions: $title_class"
-          if [ -z "$versions" ]; then
-            title="Update $pkg: $title_class (the updater reported no version)"
-          fi
-          case "$error_type" in
-          remirror-needed) heading="Upstream moved past the mirrored commit, a re-mirror is needed" ;;
-          stalled) heading="Update stalled, every run for a week exited as transient" ;;
-          *) heading="Update failed" ;;
-          esac
-          branch="update/$pkg-$NEW_VERSION"
+          branch="update/$pkg-$new"
           pushed=no
           branch_note=""
           if [ "$error_type" = remirror-needed ] || [ "$error_type" = stalled ]; then
@@ -369,7 +353,7 @@ jobs:
             git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
             if push_log=$({ git checkout -B "$branch" &&
               git add -A ':!AI-*.json' &&
-              git commit -m "wip: attempted update$versions" --allow-empty &&
+              git commit -m "wip: attempted update $old -> $new" --allow-empty &&
               git push -f origin "$branch"; } 2>&1); then
               pushed=yes
             else
@@ -379,8 +363,8 @@ jobs:
             fi
           fi
           {
-            printf '## %s: %s%s\n\n' "$heading" "$pkg" "$versions"
-            printf "**Error type**: \`%s\`\n" "$error_type"
+            printf '## Update failed: %s %s -> %s\n\n' "$pkg" "$old" "$new"
+            printf "**Failure**: \`%s\`\n" "$error_type"
             if [ -n "$UPSTREAM_URL" ]; then
               printf '**Upstream**: %s\n' "$UPSTREAM_URL"
             fi
@@ -395,14 +379,11 @@ jobs:
               printf '\n%s\n' "$branch_note"
             fi
           } >/tmp/issue-head.md
-          bash scripts/report-failure.sh update-failed "Update " "$title" /tmp/issue-head.md /tmp/update.log
-          echo "error_type=$error_type" >>"$GITHUB_OUTPUT"
+          bash scripts/report-failure.sh update-failed "Update " "Update $pkg $old -> $new: $title_class" /tmp/issue-head.md /tmp/update.log
 
       - name: Fail the run
-        env:
-          ERROR_TYPE: ${{ steps.report.outputs.error_type }}
         run: |
-          echo "::error::the update did not complete ($ERROR_TYPE); it is reported in the open update-failed issue"
+          echo "::error::the update failed; it is reported in the open update-failed issue"
           exit 1
 
   retire:

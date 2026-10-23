@@ -13,10 +13,6 @@ on:
     - cron: '0 4 * * *' # Daily 4 AM UTC; the gate job applies the per-repo cadence
   workflow_dispatch:
 
-concurrency:
-  group: ${{ github.workflow }}
-  cancel-in-progress: false
-
 permissions:
   contents: write
   issues: write
@@ -58,8 +54,6 @@ jobs:
       runners: ${{ steps.candidate.outputs.runners }}
       healed: ${{ steps.heal.outputs.healed }}
       kept: ${{ steps.heal.outputs.kept }}
-      heal: ${{ steps.heal.outcome }}
-      stopped: ${{ steps.stopped.outputs.stage }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: DeterminateSystems/determinate-nix-action@e847f25223456b3058e12f7fc9d777b6a6f25060 # v3.23.2
@@ -67,16 +61,10 @@ jobs:
           extra-conf: lazy-trees = false
 
       - name: Update flake.lock
-        id: lock
-        run: |
-          set -o pipefail
-          nix flake update 2>&1 | tee -a "$LOG"
+        run: nix flake update
 
       - name: Run the flake's after-lock-update app
-        id: app
-        run: |
-          set -o pipefail
-          bash scripts/after-lock-update.sh 2>&1 | tee -a "$LOG"
+        run: bash scripts/after-lock-update.sh
 
       # Probe the temporary fixes against the UPDATED inputs, before the
       # verification build. Probing the committed lock instead would read a fix
@@ -85,15 +73,12 @@ jobs:
       # two land together or neither does.
       - name: Probe and heal temporary fixes
         id: heal
-        run: |
-          set -o pipefail
-          bash scripts/heal-overlays.sh 2>&1 | tee -a "$LOG"
+        run: bash scripts/heal-overlays.sh
 
       - name: Evaluate every declared system
-        id: evaluate
         run: |
           set -o pipefail
-          nix flake check --no-build --all-systems 2>&1 | tee -a "$LOG"
+          nix flake check --no-build --all-systems 2>&1 | tee "$LOG"
 
       - name: Record the candidate
         id: candidate
@@ -110,25 +95,6 @@ jobs:
           name: candidate
           path: /tmp/candidate.patch
           if-no-files-found: error
-
-      - name: Name the step that stopped the refresh
-        id: stopped
-        if: failure()
-        env:
-          LOCK: ${{ steps.lock.outcome }}
-          APP: ${{ steps.app.outcome }}
-          HEAL: ${{ steps.heal.outcome }}
-          EVALUATE: ${{ steps.evaluate.outcome }}
-          CANDIDATE: ${{ steps.candidate.outcome }}
-        run: |
-          if [ "$LOCK" = failure ]; then stage="updating flake.lock"
-          elif [ "$APP" = failure ]; then stage="running the flake's after-lock-update app"
-          elif [ "$HEAL" = failure ]; then stage="probing the temporary fixes"
-          elif [ "$EVALUATE" = failure ]; then stage="evaluating every declared system"
-          elif [ "$CANDIDATE" = failure ]; then stage="recording the candidate"
-          else stage="setting up the runner"
-          fi
-          echo "stage=$stage" >> "$GITHUB_OUTPUT"
 
       - name: Keep the evaluation log for the report
         if: failure()
@@ -233,7 +199,7 @@ jobs:
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9 (node24)
         with:
           script: |
-            const titleBase = 'Maintenance: flake.lock update';
+            const titleBase = 'Maintenance: flake.lock update broke build';
             const open = await github.rest.issues.listForRepo({
               owner: context.repo.owner, repo: context.repo.repo,
               labels: 'maintenance', state: 'open'
@@ -289,33 +255,19 @@ jobs:
           FAILED_DRVS: ${{ steps.classify.outputs.failed_drvs }}
           HEALED: ${{ needs.prepare.outputs.healed }}
           KEPT: ${{ needs.prepare.outputs.kept }}
-          HEAL: ${{ needs.prepare.outputs.heal }}
-          PREPARE: ${{ needs.prepare.result }}
-          STOPPED: ${{ needs.prepare.outputs.stopped }}
         run: |
           fence='```'
-          if [ "$PREPARE" = failure ]; then
-            what="The scheduled lock refresh stopped while ${STOPPED:-setting up the runner}"
-          else
-            what="The refreshed flake.lock did not build on every declared system"
-          fi
           {
-            printf '## flake.lock update failed\n\n'
-            printf '%s. **flake.lock was NOT pushed.**\n\n' "$what"
+            printf '## flake.lock update failed to build\n\n'
+            printf "The scheduled \`nix flake update\` produced a flake.lock that does not evaluate or build on every declared system. **flake.lock was NOT pushed.**\n\n"
             printf "**Class**: \`%s\`\n" "$FAIL_CLASS"
-            if [ "$HEAL" = success ]; then
-              printf '**Temporary fixes kept**: %s\n' "${KEPT:-(none declared)}"
-              if [ -n "$HEALED" ]; then
-                printf "**Healed fixes NOT pushed**: \`%s\`. They probed as no longer needed against the new inputs, but the verification was red, so the removal was not pushed. If the removal is what broke it, correct that predicate; otherwise the lock bump itself broke the build.\n" "$HEALED"
-              fi
-            elif [ "$HEAL" = failure ]; then
-              printf '**Temporary fixes**: not probed; the heal step failed.\n'
-            else
-              printf '**Temporary fixes**: not probed; the run stopped before the heal step.\n'
+            printf '**Temporary fixes kept**: %s\n' "${KEPT:-(none)}"
+            if [ -n "$HEALED" ]; then
+              printf "**Healed fixes NOT pushed**: \`%s\`. They probed as no longer needed against the new inputs, but the verification was red, so the removal was not pushed. If the removal is what broke it, correct that predicate; otherwise the lock bump itself broke the build.\n" "$HEALED"
             fi
             printf '\n### Recovery\n\n%sbash\nnix flake update\nnix flake check --no-build --all-systems\nnix build --no-link\n%s\n' "$fence" "$fence"
           } >/tmp/issue-head.md
-          bash scripts/report-failure.sh maintenance "Maintenance: flake.lock update" "Maintenance: flake.lock update failed ($FAIL_CLASS)" /tmp/issue-head.md /tmp/lock-build.log
+          bash scripts/report-failure.sh maintenance "Maintenance: flake.lock update broke build" "Maintenance: flake.lock update broke build ($FAIL_CLASS)" /tmp/issue-head.md /tmp/lock-build.log
 
   cleanup:
     needs: gate
