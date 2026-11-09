@@ -10,9 +10,9 @@ OUTPUT_FILE="${GITHUB_OUTPUT:-/tmp/update-outputs.env}"
 
 output() { echo "$1=$2" >>"$OUTPUT_FILE"; }
 
-log() { echo "==> $*"; }
-warn() { echo "::warning::$*"; }
-err() { echo "::error::$*"; }
+log() { echo "==> $*" >&2; }
+warn() { echo "::warning::$*" >&2; }
+err() { echo "::error::$*" >&2; }
 
 check_suite() {
   local clog rc
