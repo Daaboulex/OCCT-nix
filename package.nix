@@ -38,7 +38,7 @@
   libpciaccess,
   libdisplay-info,
   wayland,
-  # Networking (OCCT licensing/updates)
+  # libcurl, which OCCT loads; the wrapper leaves it loopback only
   curl,
   # Device enumeration
   systemdLibs,
@@ -327,7 +327,7 @@ stdenv.mkDerivation rec {
     export DOTNET_BUNDLE_EXTRACT_BASE_DIR="''$OCCT_HOME/runtime"
 
     if [ ! -e /lib64/ld-linux-x86-64.so.2 ]; then
-      echo "occt: no /lib64 dynamic loader; enable nix-ld (myModules.nix.nix-ld) or run on an FHS distro" >&2
+      echo "occt: no /lib64 dynamic loader; set programs.nix-ld.enable = true or run on an FHS distro" >&2
       exit 1
     fi
     export NIX_LD="''${NIX_LD:-@nixLd@}"
