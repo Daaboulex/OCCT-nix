@@ -21,20 +21,20 @@ A Nix flake for [OCCT (OverClock Checking Tool)](https://www.ocbase.com/) on Nix
 
 ## What Is This?
 
-A Nix flake that wraps the upstream OCCT Linux binary into a NixOS-portable package with full CI infrastructure:
+A Nix flake that wraps the upstream OCCT Linux binary into a package for NixOS:
 
 - **Daily upstream check** at 06:00 UTC tracking both Stable and Testing channels (commits to `main` on hash change)
 - **OpenSSL 1.1 compatibility shim** — bundled .NET runtime targets removed OpenSSL 1.1 symbols; this flake compiles `libocct_compat.so` to wrap them onto OpenSSL 3.x
 - **ICU + Nix-store portability shims** — unversioned `u_strlen`, redirected app-data path under `$XDG_DATA_HOME/occt/` (default `~/.local/share/occt/`)
-- **Hardware discovery PATH** — bundles `dmidecode`, `smartmontools`, `pciutils`, `usbutils`, `lm_sensors`, `nvme-cli`, `kmod`, `util-linux`, `iproute2`, `libva-utils`, `vulkan-tools`, `i2c-tools`
-- **Pre-publish verification** — wrapper exists, ELF magic valid, shim libs present, runtime deps wired (`ci.yml`)
+- **Hardware discovery PATH**: the wrapper puts the tools listed under [Runtime PATH](#runtime-path) on `PATH`
+- **Update verification**: before a new pin is committed the updater runs `nix flake check` and builds both packages; the checks in [`flake.nix`](./flake.nix) include that each installed binary is byte-identical to the upstream download
 
 ## Features
 
 - **OpenSSL 1.1 Compatibility Shim**: OCCT bundles a .NET runtime that links against legacy OpenSSL 1.1 symbols (`ERR_put_error`, `SSL_state`, `SSLeay`, etc.) removed in OpenSSL 3.x. A custom C shim (`libocct_compat.so`) wraps the modern 3.x API and is injected via `LD_PRELOAD` + `patchelf --add-needed` into a wrapped OpenSSL layer.
-- **ICU Version Shim**: Provides an unversioned `u_strlen` symbol forwarding to the versioned `u_strlen_76`, since the .NET runtime may look for the unversioned symbol.
+- **ICU Version Shim**: Provides an unversioned `u_strlen` symbol forwarding to whichever versioned symbol, `u_strlen_76` to `u_strlen_90`, the loaded ICU exports, since the .NET runtime may look for the unversioned symbol.
 - **Nix Store Portability**: OCCT expects to write config/logs next to its binary. The wrapper redirects all application data to `$XDG_DATA_HOME/occt/` (default `~/.local/share/occt/`) and creates `app_folder_in_home` + `disable_update` trigger files.
-- **Full Hardware Discovery**: Runtime `PATH` includes `dmidecode`, `smartmontools`, `pciutils`, `usbutils`, `lm_sensors`, `nvme-cli`, `kmod`, `util-linux`, `iproute2`, `libva-utils`, `vulkan-tools`, and `i2c-tools`.
+- **Full Hardware Discovery**: Runtime `PATH` includes the hardware discovery tools listed under [Runtime PATH](#runtime-path).
 - **Memory Temperature Monitoring**: DIMM temperature sensors are read over I2C/SMBus through the `i2c-dev` and `jc42` kernel modules, which the host loads (see Privileged Mode). `i2c-tools` is included in both `LD_LIBRARY_PATH` and `PATH`.
 - **Stable & Testing Branches**: Supports both OCCT upstream release channels. Default is Stable; pass `branch = "Testing"` to track the beta/testing releases.
 - **GPU Detection**: `libdrm` (including `libdrm_amdgpu.so.1`), `libpciaccess`, `libdisplay-info`, and `hwdata` (PCI ID database via `HWDATA_PATH`) for proper GPU name resolution, VRAM reporting, and display info.
@@ -69,14 +69,16 @@ nixpkgs.overlays = [ inputs.OCCT.overlays.default ];
 
 ## Usage
 
+The wrapper needs the dynamic loader at `/lib64/ld-linux-x86-64.so.2` and exits with an error when it is missing; on NixOS, `programs.nix-ld.enable = true;` provides it. The wrapper starts OCCT in its own network namespace with only the loopback interface, so OCCT has no network access.
+
 ### Run directly
 
 ```bash
 # Stable (default)
-NIXPKGS_ALLOW_UNFREE=1 nix run 'github:Daaboulex/OCCT-nix' --impure
+nix run 'github:Daaboulex/OCCT-nix'
 
 # Testing/Beta
-NIXPKGS_ALLOW_UNFREE=1 nix run 'github:Daaboulex/OCCT-nix#occt-testing' --impure
+nix run 'github:Daaboulex/OCCT-nix#occt-testing'
 ```
 
 ### Add to a NixOS flake
@@ -97,8 +99,8 @@ NIXPKGS_ALLOW_UNFREE=1 nix run 'github:Daaboulex/OCCT-nix#occt-testing' --impure
 
    # Or directly
    environment.systemPackages = [
-     inputs.occt-nix.packages.${pkgs.system}.occt
-     # inputs.occt-nix.packages.${pkgs.system}.occt-testing  # for beta releases
+     inputs.occt-nix.packages.${pkgs.stdenv.hostPlatform.system}.occt
+     # inputs.occt-nix.packages.${pkgs.stdenv.hostPlatform.system}.occt-testing  # for beta releases
    ];
    ```
 
@@ -142,11 +144,7 @@ Same as AMD but with `iris` as the gallium driver name.
 
 ## Privileged Mode
 
-OCCT's sensors need three kernel facilities the host provides; a user process cannot load modules, so the wrapper does not try. On NixOS set `hardware.cpu.x86.msr.enable = true;` (loads `msr`), `hardware.i2c.enable = true;` (loads `i2c-dev` and grants the `i2c` group the bus), and `boot.kernelModules = [ "jc42" ];` (DIMM temperatures). Reading MSRs still needs CAP_SYS_RAWIO, and System Tuning needs root:
-
-```bash
-sudo occt
-```
+OCCT's sensors need three kernel facilities the host provides; a user process cannot load modules, so the wrapper does not try. On NixOS set `hardware.cpu.x86.msr.enable = true;` (loads `msr`), `hardware.i2c.enable = true;` (loads `i2c-dev` and grants the `i2c` group the bus), and `boot.kernelModules = [ "jc42" ];` (DIMM temperatures). Reading MSRs still needs CAP_SYS_RAWIO, and System Tuning needs root.
 
 **Note**: System Tuning only supports Intel Granite Rapids CPUs. AMD Zen 5 (Granite Ridge) is not yet supported for tuning — this is an upstream OCCT limitation.
 
@@ -162,14 +160,7 @@ OCCT's bundled .NET native code calls OpenSSL 1.1 symbols that were removed in 3
 
 ### Runtime Library Path
 
-The wrapper sets `LD_LIBRARY_PATH` with ~30 libraries covering:
-
-| Category | Libraries |
-|---|---|
-| GUI / Display | gtk3, gdk-pixbuf, glib, libX11, libXcursor, libXext, libXi, libXrandr, libXrender, libXfixes, libICE, libSM, wayland |
-| Graphics | libGL, mesa, vulkan-loader, ocl-icd, libdrm, libpciaccess, libdisplay-info |
-| .NET Runtime | openssl (wrapped), zlib, krb5, icu, lttng-ust, libunwind |
-| Hardware | hwloc, systemdLibs (libudev), pciutils, lm_sensors, curl, i2c-tools |
+The wrapper sets `LD_LIBRARY_PATH` to the wrapped OpenSSL directory followed by the libraries in the `runtimeLibs` list in [`package.nix`](./package.nix).
 
 ### Runtime PATH
 
@@ -178,44 +169,25 @@ Hardware discovery tools: `pciutils`, `dmidecode`, `smartmontools`, `usbutils`, 
 ## Known Limitations
 
 - **System Tuning**: Only supports Intel Granite Rapids. AMD Zen 5 shows "NO SUPPORTED HARDWARE" — this is upstream, not a packaging issue.
-- **Memory temperatures require root**: DIMM temperature sensors are accessed via I2C/SMBus which requires `i2c-dev` and `jc42` kernel modules. The host loads them (see Privileged Mode); membership of the `i2c` group reads them, and `sudo occt` gives full sensor access.
+- **Memory temperatures need host kernel modules**: DIMM temperature sensors are accessed via I2C/SMBus which requires `i2c-dev` and `jc42` kernel modules. The host loads them (see Privileged Mode); membership of the `i2c` group reads them.
 - **OpenCL requires system config**: The package provides the ICD loader but the actual driver (RustiCL, NVIDIA, etc.) must be registered at the NixOS system level via `hardware.graphics.extraPackages`.
 - **`RUSTICL_ENABLE` needed for AMD/Intel**: RustiCL doesn't auto-detect gallium drivers yet — the env var must be set at the session level.
 - **ZFS warning**: "The ZFS modules cannot be auto-loaded" is harmless if you don't use ZFS. OCCT checks for ZFS storage pools as part of hardware discovery.
 - **radv warning**: "radv is not a conformant Vulkan implementation" is a standard Mesa warning for non-certified drivers. It does not affect functionality.
 - **GPU name shows PCI ID**: If `hwdata` can't resolve a device name (very new hardware), the raw PCI ID (e.g. "0x1002") is displayed instead.
 
-## Automation & CI
+## Updates
 
-Three GitHub Actions workflows, from the
-[Nix Packaging Standard](https://github.com/Daaboulex/nix-packaging-standard):
-
-### CI (`ci.yml`)
-
-Runs on every push and PR: an AI-artifact guard, then builds every output the
-flake declares (`occt` and `occt-testing`, plus the standard's conformance and
-schema checks) via `nix-fast-build`.
-
-### Update (`update.yml`)
-
-Runs **daily at 06:00 UTC** (and on manual dispatch). OCCT is a proprietary
-binary with no public API, so it ships a **bespoke `scripts/update.sh`** (a
-`custom`-type updater): it downloads the latest Stable + Testing binaries from
-`ocbase.com`, validates each (HTTP 200, size >100 MB, ELF magic), extracts the
-version from .NET assembly metadata, recomputes the SRI hash, rewrites the
-matching `sources` block, then evaluates and builds. On success it commits to
-`main`; on failure it opens an `update-failed` issue.
-
-### Maintenance (`maintenance.yml`)
-
-Runs **weekly**: refreshes `flake.lock` (pushing only if the result still
-builds) and deletes stale `update/*` branches older than 30 days.
-
-### Supply chain
-
-- All GitHub Actions are pinned to commit SHAs (not mutable tags).
-- Downloads are validated (HTTP status, minimum file size, ELF magic) before any
-  hash comparison.
+[`update.yml`](./.github/workflows/update.yml) runs daily at 06:00 UTC and on
+manual dispatch. OCCT is a proprietary binary with no public API, so
+[`scripts/update.sh`](./scripts/update.sh) is a `custom`-type updater: it reads
+the Stable and Testing version and SHA-256 checksum from the JSON embedded in
+the `ocbase.com` download page, downloads each binary whose pin differs
+(requiring HTTP 200 and at least 100 MB), compares its SHA-256 with the
+published checksum, rewrites the matching `sources` block in
+[`package.nix`](./package.nix), then runs `nix flake check` and builds both
+packages. On success it commits to `main`; on failure it opens an
+`update-failed` issue.
 
 ## Development
 
@@ -235,14 +207,14 @@ cat result/bin/occt
 gh workflow run update.yml
 ```
 
-Pre-commit hooks (from the standard): `nixfmt-rfc-style`, `typos`, `rumdl`,
-`check-readme-sections`.
+The pre-commit hooks come from the
+[Nix Packaging Standard](https://github.com/Daaboulex/nix-packaging-standard).
 
 ## License
 
 - **Nix packaging & compat shim**: This repo is [MIT](./LICENSE) licensed.
 - **OCCT software**: Proprietary, unfree. This repository does **not** distribute the OCCT binary — it only provides the fetch + wrap pipeline. Your use of OCCT is subject to the [EULA and license terms](https://www.ocbase.com/) of OCCT-Base.
-- **Unfree gate**: requires `nixpkgs.config.allowUnfree = true` in your Nix configuration.
+- **Unfree gate**: the flake's own outputs (`nix run`, `nix build`, `inputs.occt-nix.packages`) need no setting, because the flake allows unfree for them. `pkgs.occt` and `pkgs.occt-testing` from the overlay require `nixpkgs.config.allowUnfree = true` in your Nix configuration.
 
 <!-- BEGIN generated:footer -->
 <!-- END generated:footer -->
