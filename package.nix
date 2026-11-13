@@ -198,14 +198,14 @@ let
   # Per-branch source metadata (version, URL, hash)
   sources = {
     Stable = {
-      version = "17.1.10";
+      version = "17.1.11";
       url = "https://www.ocbase.com/download-bin/edition:Personal/os:Linux/branch:Stable";
-      hash = "sha256-ott/S/mGwkD6POxAoG8ya8JoY0GeazRY0wn2m7mYfCE=";
+      hash = "sha256-WHpLM0BIQifN66sxJLuC2Z3TLfqf2pPHkom2377G4TU=";
     };
     Testing = {
-      version = "17.1.10";
+      version = "17.1.11";
       url = "https://www.ocbase.com/download-bin/edition:Personal/os:Linux/branch:Testing";
-      hash = "sha256-ott/S/mGwkD6POxAoG8ya8JoY0GeazRY0wn2m7mYfCE=";
+      hash = "sha256-WHpLM0BIQifN66sxJLuC2Z3TLfqf2pPHkom2377G4TU=";
     };
   };
 
